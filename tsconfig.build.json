@@ -1,0 +1,15 @@
+{
+    "extends": "./tsconfig.json",
+
+    "compilerOptions": {
+        "types": ["node"],
+        "noEmit": false,
+        "declaration": false,
+        "resolveJsonModule": false,
+
+        "outDir": "bot"
+    },
+
+    "include": ["*.ts", "*.d.ts"],
+    "exclude": ["node_modules/**/*", "**/node_modules", "bot/**/*", "**/bot/"]
+}

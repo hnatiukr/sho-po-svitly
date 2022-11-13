@@ -1,0 +1,15 @@
+.env
+
+logs.json
+activations.json
+
+bot/
+node_modules/
+
+.DS_Store
+
+.idea
+.fleet
+.vscode
+
+*.tsbuildinfo

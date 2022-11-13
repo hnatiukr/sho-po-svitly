@@ -1,0 +1,16 @@
+[Unit]
+Description=Telegram bot 'Sho po svitly?'
+After=syslog.target
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={PATH_TO_BOT_DIR}
+ExecStart={PATH_TO_NODE} {PATH_TO_BOT_EXEC_FILE}
+
+RestartSec=10
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
