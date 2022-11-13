@@ -232,6 +232,10 @@ bot.on('text', async (context, next) => {
             }
         }
     } else {
+        await context.replyWithPhoto({
+            source: pathFromRoot('sho-po-svitly.png'),
+        });
+
         await context.reply(
             'Привіт. Я вмію інформвати про відключення/відновлення електроенергії, пінгуючи роутер. Введи свою IP адресу (вона має бути статичною і публічною, інакше ніхуя працювати не буде):',
         );
