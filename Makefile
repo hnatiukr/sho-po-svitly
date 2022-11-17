@@ -17,7 +17,7 @@ start:
 	node bot
 
 dev:
-	make lint prebuild build start
+	make lint build start
 
 service:
 	sudo systemctl daemon-reload
@@ -26,5 +26,5 @@ service:
 	sudo systemctl status bot
 
 ci:
-	git pull
-	make install prebuild build service
+	git pull --rebase origin main
+	make install build service
