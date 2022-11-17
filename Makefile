@@ -13,18 +13,24 @@ build:
 	make prebuild
 	npx tsc -p tsconfig.build.json
 
-start:
+dev:
+	make lint build
 	node bot
 
-dev:
-	make lint build start
+stop:
+	sudo systemctl stop bot
 
-service:
+restart:
 	sudo systemctl daemon-reload
 	sudo systemctl enable bot
 	sudo systemctl start bot
 	sudo systemctl status bot
 
 ci:
+	make stop
 	git pull --rebase origin main
-	make install build service
+	make install build
+	make restart
+
+log:
+	sudo tail -30 /var/log/syslog
