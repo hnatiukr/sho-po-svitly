@@ -69,7 +69,7 @@ function getUserId(context: Context): UserId {
         return context?.message?.from.id;
     }
 
-    // @ts-ignore incorrect context param type
+    // @ts-ignore an incorrect context param type
     return context.update.message.from.id;
 }
 
@@ -97,7 +97,7 @@ function startSchedule(context: Context): void {
 
         if (log === undefined) {
             context.reply(
-                'Упс.. щось воно не робе. Схоже, твоя IP адреса ще не налаштована. Я хз як це раза владнати. Спробуй наново встановити бота, або видали його і не користуйся',
+                'Упс.. щось воно не робе. Схоже, твоя IP адреса ще не налаштована. Спробуй наново додати або змінити її через налаштування /settings',
             );
 
             return;
@@ -173,6 +173,17 @@ function setMapValue<Entity>(userId: UserId, entity: Entity, fileName: string): 
     fs.writeFileSync(path, JSON.stringify(mapEntries, null, 4));
 }
 
+function deleteMapValue<Entity>(userId: UserId, fileName: string): void {
+    const path = pathFromRoot(fileName);
+    const map = getParsedMap<Entity>(path);
+
+    map.delete(userId);
+
+    const mapEntries = [...map.entries()];
+
+    fs.writeFileSync(path, JSON.stringify(mapEntries, null, 4));
+}
+
 //
 
 if (process.env.BOT_TOKEN === undefined) {
@@ -193,12 +204,14 @@ bot.on('text', async (context, next) => {
 
             if (isValidIp(ipCandidate)) {
                 await context.reply(
-                    `О, красава! У подальшому, ти зможеш перевірити актуальну IP адресу за допомогою команди /ip `,
+                    `О, красава! У подальшому, ти зможеш перевірити або змінити IP адресу в налаштуваннях`,
                 );
 
                 await context.reply(
-                    'Давай налаштуємо роботу бота. Для початку, перевіримо шо там по світлу зараз \n\nХвилиночку... 🐢',
+                    'Давай налаштуємо роботу бота. Для початку, перевіримо шо там по світлу зараз',
                 );
+
+                await context.reply('Хвилиночку... 🐢');
 
                 await ping(ipCandidate, async (power) => {
                     if (power === 1) {
@@ -223,6 +236,8 @@ bot.on('text', async (context, next) => {
 
                     await startSchedule(context);
 
+                    await context.reply('Налаштувати IP адресу можна через команду /settings');
+
                     await context.reply(
                         'Або, використовуй для виклику команд навігаційне меню ліворуч від того місця, де ти набираєш текст \n\nОтут, внизу ↙️',
                     );
@@ -232,12 +247,13 @@ bot.on('text', async (context, next) => {
             }
         }
     } else {
-        await context.replyWithPhoto({
-            source: pathFromRoot('sho-po-svitly.png'),
-        });
+        await context.reply(
+            'Привіт. Я вмію інформвати про відключення/відновлення електроенергії, пінгуючи роутер',
+        );
 
         await context.reply(
-            'Привіт. Я вмію інформвати про відключення/відновлення електроенергії, пінгуючи роутер. Введи свою IP адресу (вона має бути статичною і публічною, інакше ніхуя працювати не буде):',
+            'Твоєї IP адреси ще немає в базі. Тисни кніпочку нижче, щоб додати її',
+            Markup.inlineKeyboard([Markup.button.callback('кніпочка', 'set-ip')]),
         );
 
         setMapValue<IsActivated>(userId, true, fileNames.activations);
@@ -250,38 +266,71 @@ bot.command('ping', async (context) => {
     const userId = getUserId(context);
     const log = getMapValue<Log>(userId, fileNames.logs);
 
-    if (log === undefined) {
-        await context.reply(
-            'Упс.. щось воно не робе. Схоже, твоя IP адреса ще не налаштована. Я хз як це раза владнати. Спробуй наново встановити бота, або видали його і не користуйся',
-        );
+    if (log) {
+        const { ip, timestamp } = log;
 
-        return;
+        await ping(ip, async (power) => {
+            if (power === 1) {
+                await context.reply(
+                    `💡 Британська розвідка доповідає, що електрика в хаті є вже ${passedTimeFrom(
+                        timestamp,
+                    )}`,
+                );
+            } else {
+                await context.reply(
+                    `⛔️ Світлу - пизда. Електропостачання відсутнє вже ${passedTimeFrom(
+                        timestamp,
+                    )}`,
+                );
+            }
+        });
     }
-
-    const { ip, timestamp } = log;
-
-    await ping(ip, async (power) => {
-        if (power === 1) {
-            await context.reply(
-                `💡 Британська розвідка доповідає, що електрика в хаті є вже ${passedTimeFrom(
-                    timestamp,
-                )}`,
-            );
-        } else {
-            await context.reply(
-                `⛔️ Світлу - пизда. Електропостачання відсутнє вже ${passedTimeFrom(timestamp)}`,
-            );
-        }
-    });
 });
 
-bot.command('ip', async (context) => {
+bot.command('settings', async (context) => {
+    const userId = getUserId(context);
+    const log = getMapValue<Log>(userId, fileNames.logs);
+
+    if (log) {
+        await context.reply(
+            '⚙️Налаштування IP адреси\n',
+            Markup.inlineKeyboard([
+                Markup.button.callback('👀 переглянути', 'show-ip'),
+                Markup.button.callback('✏️️ змінити', 'set-ip'),
+            ]),
+        );
+    }
+});
+
+bot.command('schedule', async (context) => {
+    const userId = getUserId(context);
+    const log = getMapValue<Log>(userId, fileNames.logs);
+
+    if (log) {
+        await context.reply(
+            'Графік відключень',
+            Markup.inlineKeyboard([
+                Markup.button.url(
+                    'Київ',
+                    'https://kyiv.yasno.com.ua/schedule-turn-off-electricity',
+                ),
+                Markup.button.url('Львів', 'https://poweroff.loe.lviv.ua/'),
+            ]),
+        );
+    }
+});
+
+bot.command('chmut', async (context) => {
+    await context.reply('РУСНІ - ПИЗДА!');
+});
+
+bot.action('show-ip', async (context) => {
     const userId = getUserId(context);
     const log = getMapValue<Log>(userId, fileNames.logs);
 
     if (log === undefined) {
         await context.reply(
-            '🤦‍♂️ Упс.. щось воно ніхуя не робе. Чомусь, твоя IP адреса ще не налаштована. Я хз як це зараз владнати. \nСпробуй наново встановити бота, або видали його нахуй і більше не користуйся',
+            'Схоже, твоя IP адреса ще не налаштована. Запусти команду /settings, а далі сам розберешься',
         );
 
         return;
@@ -290,14 +339,14 @@ bot.command('ip', async (context) => {
     await context.reply(`Твоя IP адреса: ${log.ip}`);
 });
 
-bot.command('schedule', async (context) => {
+bot.action('set-ip', async (context) => {
+    const userId = getUserId(context);
+
     await context.reply(
-        'Графік відключень',
-        Markup.inlineKeyboard([
-            Markup.button.url('Київ', 'https://kyiv.yasno.com.ua/schedule-turn-off-electricity'),
-            Markup.button.url('Львів', 'https://poweroff.loe.lviv.ua/'),
-        ]),
+        '⬇️ Введи свою IP адресу (вона має бути статичною і публічною, інакше ніхуя працювати не буде):',
     );
+
+    await deleteMapValue(userId, fileNames.logs);
 });
 
 bot.launch()
