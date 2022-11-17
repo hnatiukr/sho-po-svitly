@@ -5,7 +5,7 @@ import { resolve } from 'path';
 import netPing from 'net-ping';
 import * as dotenv from 'dotenv';
 import schedule from 'node-schedule';
-import { Telegraf, Context } from 'telegraf';
+import { Telegraf, Context, Markup } from 'telegraf';
 
 import dayjs from 'dayjs';
 import uk from 'dayjs/locale/uk';
@@ -144,8 +144,8 @@ function passedTimeFrom(timestamp: number): string {
 }
 
 function getParsedMap<Entity>(jsonPath: string): Map<UserId, Entity> {
-    const stringified = fs.readFileSync(jsonPath, 'utf-8');
-    const parsed: [UserId, Entity][] = JSON.parse(stringified);
+    const json = fs.readFileSync(jsonPath, 'utf-8');
+    const parsed: [UserId, Entity][] = JSON.parse(json);
 
     const map = new Map<UserId, Entity>();
 
@@ -290,8 +290,14 @@ bot.command('ip', async (context) => {
     await context.reply(`Твоя IP адреса: ${log.ip}`);
 });
 
-bot.command('yasno', async (context) => {
-    await context.reply('https://kyiv.yasno.com.ua/schedule-turn-off-electricity');
+bot.command('schedule', async (context) => {
+    await context.reply(
+        'Графік відключень',
+        Markup.inlineKeyboard([
+            Markup.button.url('Київ', 'https://kyiv.yasno.com.ua/schedule-turn-off-electricity'),
+            Markup.button.url('Львів', 'https://poweroff.loe.lviv.ua/'),
+        ]),
+    );
 });
 
 bot.launch()
