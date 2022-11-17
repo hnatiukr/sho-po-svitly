@@ -1,7 +1,7 @@
 .PHONY: lint prebuild build start dev ci service ci
 
 install:
-	npm install
+	npm ci
 
 lint:
 	npx prettier --loglevel error --write .
