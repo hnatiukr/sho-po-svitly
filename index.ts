@@ -184,6 +184,36 @@ function deleteMapValue<Entity>(userId: UserId, fileName: string): void {
     fs.writeFileSync(path, JSON.stringify(mapEntries, null, 4));
 }
 
+function getLog(context: Context): Log | undefined {
+    const userId = getUserId(context);
+
+    return getMapValue<Log>(userId, fileNames.logs);
+}
+
+function setLog(context: Context, log: Log): void {
+    const userId = getUserId(context);
+
+    setMapValue<Log>(userId, log, fileNames.logs);
+}
+
+function deleteLog(context: Context): void {
+    const userId = getUserId(context);
+
+    deleteMapValue(userId, fileNames.logs);
+}
+
+function getActiovation(context: Context): IsActivated | undefined {
+    const userId = getUserId(context);
+
+    return getMapValue<IsActivated>(userId, fileNames.activations);
+}
+
+function setActiovation(context: Context): void {
+    const userId = getUserId(context);
+
+    setMapValue<IsActivated>(userId, true, fileNames.activations);
+}
+
 //
 
 if (process.env.BOT_TOKEN === undefined) {
@@ -193,11 +223,10 @@ if (process.env.BOT_TOKEN === undefined) {
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.on('text', async (context, next) => {
-    const userId = getUserId(context);
-    const isActivated = getMapValue<IsActivated>(userId, fileNames.activations);
+    const isActivated = getActiovation(context);
 
     if (isActivated) {
-        const log = getMapValue<Log>(userId, fileNames.logs);
+        const log = getLog(context);
 
         if (!log) {
             const ipCandidate = context.message.text;
@@ -220,15 +249,11 @@ bot.on('text', async (context, next) => {
                         await context.reply('⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає');
                     }
 
-                    setMapValue(
-                        userId,
-                        {
-                            power,
-                            ip: ipCandidate,
-                            timestamp: utcTimestamp(),
-                        },
-                        fileNames.logs,
-                    );
+                    setLog(context, {
+                        power,
+                        ip: ipCandidate,
+                        timestamp: utcTimestamp(),
+                    });
 
                     await context.reply(
                         'Я продовжу моніторити і одразу повідомлю, якщо з електропостачанням щось трапиться. Поточний статус можеш перевірити за допомогою команди /ping ',
@@ -256,15 +281,14 @@ bot.on('text', async (context, next) => {
             Markup.inlineKeyboard([Markup.button.callback('кніпочка', 'set-ip')]),
         );
 
-        setMapValue<IsActivated>(userId, true, fileNames.activations);
+        setActiovation(context);
     }
 
     await next();
 });
 
 bot.command('ping', async (context) => {
-    const userId = getUserId(context);
-    const log = getMapValue<Log>(userId, fileNames.logs);
+    const log = getLog(context);
 
     if (log) {
         const { ip, timestamp } = log;
@@ -288,8 +312,7 @@ bot.command('ping', async (context) => {
 });
 
 bot.command('settings', async (context) => {
-    const userId = getUserId(context);
-    const log = getMapValue<Log>(userId, fileNames.logs);
+    const log = getLog(context);
 
     if (log) {
         await context.reply(
@@ -303,8 +326,7 @@ bot.command('settings', async (context) => {
 });
 
 bot.command('schedule', async (context) => {
-    const userId = getUserId(context);
-    const log = getMapValue<Log>(userId, fileNames.logs);
+    const log = getLog(context);
 
     if (log) {
         await context.reply(
@@ -321,10 +343,9 @@ bot.command('schedule', async (context) => {
 });
 
 bot.action('show-ip', async (context) => {
-    const userId = getUserId(context);
-    const log = getMapValue<Log>(userId, fileNames.logs);
+    const log = getLog(context);
 
-    if (log === undefined) {
+    if (!log) {
         await context.reply(
             'Схоже, твоя IP адреса ще не налаштована. Запусти команду /settings, а далі сам розберешься',
         );
@@ -336,13 +357,11 @@ bot.action('show-ip', async (context) => {
 });
 
 bot.action('set-ip', async (context) => {
-    const userId = getUserId(context);
-
     await context.reply(
         '⬇️ Введи свою IP адресу (вона має бути статичною і публічною, інакше ніхуя працювати не буде):',
     );
 
-    await deleteMapValue(userId, fileNames.logs);
+    deleteLog(context);
 });
 
 bot.launch()
