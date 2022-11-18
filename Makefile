@@ -1,36 +1,35 @@
-.PHONY: lint prebuild build start dev ci service ci
+.PHONY: build dev ci bot-stop bot-restart bot-status bot-config bot-log
 
 install:
 	npm ci
 
-lint:
-	npx prettier --loglevel error --write .
-
-prebuild:
-	rm -rf bot
-
 build:
-	make prebuild
+	npx prettier --loglevel error --write .
+	rm -rf bot
 	npx tsc -p tsconfig.build.json
 
 dev:
-	make lint build
+	make build
 	node bot
 
-stop:
+ci:
+	make bot-stop
+	git pull origin main
+	make install build bot-restart bot-status
+
+bot-stop:
 	sudo systemctl stop bot
 
-restart:
+bot-restart:
 	sudo systemctl daemon-reload
 	sudo systemctl enable bot
 	sudo systemctl start bot
+
+bot-status:
 	sudo systemctl status bot
 
-ci:
-	make stop
-	git pull --rebase origin main
-	make install build
-	make restart
+bot-config:
+	sudo nano /etc/systemd/system/bot.service
 
-log:
+bot-log:
 	sudo tail -30 /var/log/syslog
