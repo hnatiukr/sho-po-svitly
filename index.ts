@@ -77,7 +77,7 @@ function ping(ip: Ip, callback: (power: Power) => void): void {
     const session = netPing.createSession();
 
     session.pingHost(ip, (error: Error) => {
-        const power = error ? 0 : 1;
+        const power = error ? Power.Off : Power.On;
         const logTime = dayjs().locale('en').utcOffset(2).format('DD MMM YYYY, hh:mm a');
 
         console.log(`${logTime} | ${ip} | status: ${power}`);
@@ -121,7 +121,7 @@ function startSchedule(context: Context): void {
                     );
                 }
 
-                await setMapValue(
+                setMapValue(
                     userId,
                     {
                         ip,
@@ -213,14 +213,14 @@ bot.on('text', async (context, next) => {
 
                 await context.reply('Хвилиночку... 🐢');
 
-                await ping(ipCandidate, async (power) => {
+                ping(ipCandidate, async (power) => {
                     if (power === 1) {
                         await context.reply('💡 Схоже, зараз електрика є. І це заєбісь');
                     } else {
                         await context.reply('⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає');
                     }
 
-                    await setMapValue(
+                    setMapValue(
                         userId,
                         {
                             power,
@@ -269,7 +269,7 @@ bot.command('ping', async (context) => {
     if (log) {
         const { ip, timestamp } = log;
 
-        await ping(ip, async (power) => {
+        ping(ip, async (power) => {
             if (power === 1) {
                 await context.reply(
                     `💡 Британська розвідка доповідає, що електрика в хаті є вже ${passedTimeFrom(
@@ -318,10 +318,6 @@ bot.command('schedule', async (context) => {
             ]),
         );
     }
-});
-
-bot.command('chmut', async (context) => {
-    await context.reply('РУСНІ - ПИЗДА!');
 });
 
 bot.action('show-ip', async (context) => {
