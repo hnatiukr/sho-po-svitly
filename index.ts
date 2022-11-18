@@ -232,8 +232,7 @@ if (process.env.BOT_TOKEN === undefined) {
     throw ReferenceError(`"BOT_TOKEN" env var is required!`);
 }
 
-const bot = new Telegraf('1349959862:AAEu4JlnwEZDb0KMu6esIBywxE9mrIVoBAU');
-// const bot = new Telegraf(process.env.BOT_TOKEN);
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
 //
 
