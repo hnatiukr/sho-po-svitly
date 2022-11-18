@@ -1,2 +1,5 @@
 node_modules/
-bot/
+bot
+
+logs.json
+activations.json
