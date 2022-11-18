@@ -29,23 +29,25 @@ enum Power {
     On = 1,
 }
 
-type UserId = number;
-
-type IsActivated = boolean;
-
 type Ip = string;
 
-type Log = {
+type UserId = number;
+
+type Trace = {
     ip: Ip;
-    timestamp: number;
     power: Power;
+    timestamp: number;
 };
+
+type LogsMap = Map<UserId, Trace[]>;
+
+type LogsEntries = [UserId, Trace[]][];
 
 //
 
-const fileNames = {
-    logs: 'logs.json',
-    activations: 'activations.json',
+const pathTo = {
+    logsJSON: pathFromRoot('logs.json'),
+    activationsJSON: pathFromRoot('activations.json'),
 };
 
 //
@@ -60,6 +62,95 @@ function pathFromRoot(path: string): string {
     return resolve(process.cwd(), path);
 }
 
+function utcTimestamp(): number {
+    return dayjs().utc().valueOf();
+}
+
+function passedTimeFrom(timestamp: number): string {
+    return dayjs(timestamp).fromNow(true);
+}
+
+//
+
+function readFile<DTO>(path: string): DTO {
+    const json = fs.readFileSync(path, 'utf-8');
+
+    return JSON.parse(json);
+}
+
+function writeFile<Data>(path: string, data: Data): void {
+    fs.writeFileSync(path, JSON.stringify(data, null, 4));
+}
+
+//
+
+function getActivations(): Set<UserId> {
+    const json = readFile<[UserId]>(pathTo.activationsJSON);
+
+    return new Set(json);
+}
+
+function hasActivation(userId: UserId) {
+    const activations = getActivations();
+
+    return activations.has(userId);
+}
+
+function addActivation(userId: UserId) {
+    const activations = getActivations();
+
+    activations.add(userId);
+
+    const values = [...activations.values()];
+
+    writeFile<UserId[]>(pathTo.activationsJSON, values);
+}
+
+//
+
+function getLogs(): LogsMap {
+    const json = readFile<LogsEntries>(pathTo.logsJSON);
+
+    return new Map(json);
+}
+
+function getTrace(userId: UserId): Trace | undefined {
+    const logs = getLogs();
+
+    if (logs.has(userId)) {
+        return logs.get(userId)?.at(-1);
+    }
+}
+
+function setTrace(userId: UserId, trace: Trace): void {
+    const logs = getLogs();
+    const prevTraces = logs.get(userId);
+
+    if (prevTraces) {
+        const updatedTraces = [...prevTraces, trace];
+
+        logs.set(userId, updatedTraces);
+    } else {
+        logs.set(userId, [trace]);
+    }
+
+    const entries = [...logs.entries()];
+
+    writeFile<LogsEntries>(pathTo.logsJSON, entries);
+}
+
+function deleteLog(userId: UserId) {
+    const logs = getLogs();
+
+    logs.delete(userId);
+
+    const entries = [...logs.entries()];
+
+    writeFile<LogsEntries>(pathTo.logsJSON, entries);
+}
+
+//
+
 function getUserId(context: Context): UserId {
     if (context?.from?.id) {
         return context?.from?.id;
@@ -73,14 +164,16 @@ function getUserId(context: Context): UserId {
     return context.update.message.from.id;
 }
 
+//
+
 function ping(ip: Ip, callback: (power: Power) => void): void {
     const session = netPing.createSession();
 
     session.pingHost(ip, (error: Error) => {
         const power = error ? Power.Off : Power.On;
-        const logTime = dayjs().locale('en').utcOffset(2).format('DD MMM YYYY, hh:mm a');
+        const pingTime = dayjs().locale('en').utcOffset(2).format('DD MMM YYYY, hh:mm a');
 
-        console.log(`${logTime} | ${ip} | status: ${power}`);
+        console.log(`${pingTime} | ${ip} | status: ${power}`);
 
         callback(power);
 
@@ -88,14 +181,16 @@ function ping(ip: Ip, callback: (power: Power) => void): void {
     });
 }
 
+//
+
 function startSchedule(context: Context): void {
     const everyMinute = '*/1 * * * *';
 
     schedule.scheduleJob(everyMinute, () => {
         const userId = getUserId(context);
-        const log = getMapValue<Log>(userId, fileNames.logs);
+        const trace = getTrace(userId);
 
-        if (log === undefined) {
+        if (!trace) {
             context.reply(
                 'Упс.. щось воно не робе. Схоже, твоя IP адреса ще не налаштована. Спробуй наново додати або змінити її через налаштування /settings',
             );
@@ -103,7 +198,7 @@ function startSchedule(context: Context): void {
             return;
         }
 
-        const { ip, timestamp, power: prevPower } = log;
+        const { ip, timestamp, power: prevPower } = trace;
 
         ping(ip, async (nextPower) => {
             if (prevPower !== nextPower) {
@@ -121,97 +216,14 @@ function startSchedule(context: Context): void {
                     );
                 }
 
-                setMapValue(
-                    userId,
-                    {
-                        ip,
-                        power: nextPower,
-                        timestamp: utcTimestamp(),
-                    },
-                    fileNames.logs,
-                );
+                setTrace(userId, {
+                    ip,
+                    power: nextPower,
+                    timestamp: utcTimestamp(),
+                });
             }
         });
     });
-}
-
-function utcTimestamp(): number {
-    return dayjs().utc().valueOf();
-}
-
-function passedTimeFrom(timestamp: number): string {
-    return dayjs(timestamp).fromNow(true);
-}
-
-function getParsedMap<Entity>(jsonPath: string): Map<UserId, Entity> {
-    const json = fs.readFileSync(jsonPath, 'utf-8');
-    const parsed: [UserId, Entity][] = JSON.parse(json);
-
-    const map = new Map<UserId, Entity>();
-
-    for (const [parsedKey, parsedValue] of parsed) {
-        map.set(parsedKey, parsedValue);
-    }
-
-    return map;
-}
-
-function getMapValue<Entity>(userId: UserId, fileName: string): Entity | undefined {
-    const map = getParsedMap<Entity>(pathFromRoot(fileName));
-
-    return map.get(userId);
-}
-
-function setMapValue<Entity>(userId: UserId, entity: Entity, fileName: string): void {
-    const path = pathFromRoot(fileName);
-    const map = getParsedMap<Entity>(path);
-
-    map.set(userId, entity);
-
-    const mapEntries = [...map.entries()];
-
-    fs.writeFileSync(path, JSON.stringify(mapEntries, null, 4));
-}
-
-function deleteMapValue<Entity>(userId: UserId, fileName: string): void {
-    const path = pathFromRoot(fileName);
-    const map = getParsedMap<Entity>(path);
-
-    map.delete(userId);
-
-    const mapEntries = [...map.entries()];
-
-    fs.writeFileSync(path, JSON.stringify(mapEntries, null, 4));
-}
-
-function getLog(context: Context): Log | undefined {
-    const userId = getUserId(context);
-
-    return getMapValue<Log>(userId, fileNames.logs);
-}
-
-function setLog(context: Context, log: Log): void {
-    const userId = getUserId(context);
-
-    setMapValue<Log>(userId, log, fileNames.logs);
-}
-
-function deleteLog(context: Context): void {
-    const userId = getUserId(context);
-
-    deleteMapValue(userId, fileNames.logs);
-}
-
-function getActiovation(context: Context): IsActivated | undefined {
-    const userId = getUserId(context);
-
-    return getMapValue<IsActivated>(userId, fileNames.activations);
-}
-
-function setActiovation(context: Context): void {
-    const userId = getUserId(context);
-
-    setMapValue<IsActivated>(userId, true, fileNames.activations);
 }
 
 //
@@ -220,15 +232,19 @@ if (process.env.BOT_TOKEN === undefined) {
     throw ReferenceError(`"BOT_TOKEN" env var is required!`);
 }
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+const bot = new Telegraf('1349959862:AAEu4JlnwEZDb0KMu6esIBywxE9mrIVoBAU');
+// const bot = new Telegraf(process.env.BOT_TOKEN);
+
+//
 
 bot.on('text', async (context, next) => {
-    const isActivated = getActiovation(context);
+    const userId = getUserId(context);
+    const isActivated = hasActivation(userId);
 
     if (isActivated) {
-        const log = getLog(context);
+        const trace = getTrace(userId);
 
-        if (!log) {
+        if (!trace) {
             const ipCandidate = context.message.text;
 
             if (isValidIp(ipCandidate)) {
@@ -249,7 +265,7 @@ bot.on('text', async (context, next) => {
                         await context.reply('⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає');
                     }
 
-                    setLog(context, {
+                    setTrace(userId, {
                         power,
                         ip: ipCandidate,
                         timestamp: utcTimestamp(),
@@ -281,17 +297,20 @@ bot.on('text', async (context, next) => {
             Markup.inlineKeyboard([Markup.button.callback('кніпочка', 'set-ip')]),
         );
 
-        setActiovation(context);
+        addActivation(userId);
     }
 
     await next();
 });
 
-bot.command('ping', async (context) => {
-    const log = getLog(context);
+//
 
-    if (log) {
-        const { ip, timestamp } = log;
+bot.command('ping', async (context) => {
+    const userId = getUserId(context);
+    const trace = getTrace(userId);
+
+    if (trace) {
+        const { ip, timestamp } = trace;
 
         ping(ip, async (power) => {
             if (power === 1) {
@@ -312,9 +331,10 @@ bot.command('ping', async (context) => {
 });
 
 bot.command('settings', async (context) => {
-    const log = getLog(context);
+    const userId = getUserId(context);
+    const trace = getTrace(userId);
 
-    if (log) {
+    if (trace) {
         await context.reply(
             '⚙️Налаштування IP адреси\n',
             Markup.inlineKeyboard([
@@ -326,9 +346,10 @@ bot.command('settings', async (context) => {
 });
 
 bot.command('schedule', async (context) => {
-    const log = getLog(context);
+    const userId = getUserId(context);
+    const trace = getTrace(userId);
 
-    if (log) {
+    if (trace) {
         await context.reply(
             'Графік відключень',
             Markup.inlineKeyboard([
@@ -342,10 +363,13 @@ bot.command('schedule', async (context) => {
     }
 });
 
-bot.action('show-ip', async (context) => {
-    const log = getLog(context);
+//
 
-    if (!log) {
+bot.action('show-ip', async (context) => {
+    const userId = getUserId(context);
+    const trace = getTrace(userId);
+
+    if (!trace) {
         await context.reply(
             'Схоже, твоя IP адреса ще не налаштована. Запусти команду /settings, а далі сам розберешься',
         );
@@ -353,7 +377,7 @@ bot.action('show-ip', async (context) => {
         return;
     }
 
-    await context.reply(`Твоя IP адреса: ${log.ip}`);
+    await context.reply(`Твоя IP адреса: ${trace.ip}`);
 });
 
 bot.action('set-ip', async (context) => {
@@ -361,27 +385,25 @@ bot.action('set-ip', async (context) => {
         '⬇️ Введи свою IP адресу (вона має бути статичною і публічною, інакше ніхуя працювати не буде):',
     );
 
-    deleteLog(context);
+    const userId = getUserId(context);
+
+    deleteLog(userId);
 });
+
+//
 
 bot.launch()
     .then(() => {
-        const logsJsonPath = pathFromRoot(fileNames.logs);
+        if (!fs.existsSync(pathTo.logsJSON)) {
+            fs.writeFileSync(pathTo.logsJSON, JSON.stringify([]));
 
-        if (!fs.existsSync(logsJsonPath)) {
-            fs.writeFileSync(logsJsonPath, JSON.stringify([]));
-
-            console.log(`"${fileNames.logs}" has been created`);
-            console.log(logsJsonPath);
+            console.log(`${pathTo.logsJSON} has been created`);
         }
 
-        const activationsJsonPath = pathFromRoot(fileNames.activations);
+        if (!fs.existsSync(pathTo.activationsJSON)) {
+            fs.writeFileSync(pathTo.activationsJSON, JSON.stringify([]));
 
-        if (!fs.existsSync(activationsJsonPath)) {
-            fs.writeFileSync(activationsJsonPath, JSON.stringify([]));
-
-            console.log(`"${fileNames.activations}" has been created`);
-            console.log(activationsJsonPath);
+            console.log(`${pathTo.activationsJSON} has been created`);
         }
     })
     .finally(() => console.log('Bot has been started'));
