@@ -118,7 +118,11 @@ function getTrace(userId: UserId): Trace | undefined {
     const logs = getLogs();
 
     if (logs.has(userId)) {
-        return logs.get(userId)?.at(-1);
+        const traces = logs.get(userId);
+
+        if (traces && traces.length > 0) {
+            return traces[traces.length - 1];
+        }
     }
 }
 
