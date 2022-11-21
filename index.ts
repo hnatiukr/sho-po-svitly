@@ -62,103 +62,117 @@ function pathFromRoot(path: string): string {
     return resolve(process.cwd(), path);
 }
 
-function utcTimestamp(): number {
-    return dayjs().utc().valueOf();
-}
-
-function passedTimeFrom(timestamp: number): string {
-    return dayjs(timestamp).fromNow(true);
-}
-
 //
 
-function readFile<Data>(path: string): Data {
-    const json = fs.readFileSync(path, 'utf-8');
+namespace Time {
+    export function utcTimestamp(): number {
+        return dayjs().utc().valueOf();
+    }
 
-    return JSON.parse(json);
-}
-
-function writeFile<Data>(path: string, data: Data): void {
-    fs.writeFileSync(path, JSON.stringify(data, null, 4));
-}
-
-function createFileIfNotExist<Data>(path: string, data: Data): void {
-    if (!fs.existsSync(path)) {
-        fs.writeFileSync(path, JSON.stringify(data));
-
-        console.log(`${path} has been created`);
+    export function passedTimeFrom(timestamp: number): string {
+        return dayjs(timestamp).fromNow(true);
     }
 }
 
 //
 
-function getActivations(): Set<UserId> {
-    const json = readFile<[UserId]>(pathTo.activationsJSON);
+namespace FS {
+    export function readFile<Data>(path: string): Data {
+        const json = fs.readFileSync(path, 'utf-8');
 
-    return new Set(json);
-}
+        return JSON.parse(json);
+    }
 
-function hasActivation(userId: UserId) {
-    const activations = getActivations();
+    export function writeFile<Data>(path: string, data: Data): void {
+        fs.writeFileSync(path, JSON.stringify(data, null, 4));
+    }
 
-    return activations.has(userId);
-}
+    export function createFile<Data>(path: string, data: Data): void {
+        if (!fs.existsSync(path)) {
+            FS.writeFile(path, data);
 
-function addActivation(userId: UserId) {
-    const activations = getActivations();
-
-    activations.add(userId);
-
-    const values = [...activations.values()];
-
-    writeFile<UserId[]>(pathTo.activationsJSON, values);
-}
-
-//
-
-function getLogs(): LogsMap {
-    const json = readFile<LogsEntries>(pathTo.logsJSON);
-
-    return new Map(json);
-}
-
-function getTrace(userId: UserId): Trace | undefined {
-    const logs = getLogs();
-
-    if (logs.has(userId)) {
-        const traces = logs.get(userId);
-
-        if (traces && traces.length > 0) {
-            return traces[traces.length - 1];
+            console.log(`${path} has been created`);
         }
     }
 }
 
-function setTrace(userId: UserId, trace: Trace): void {
-    const logs = getLogs();
-    const prevTraces = logs.get(userId);
+//
 
-    if (prevTraces) {
-        const updatedTraces = [...prevTraces, trace];
+namespace Activations {
+    export function get(): Set<UserId> {
+        const json = FS.readFile<[UserId]>(pathTo.activationsJSON);
 
-        logs.set(userId, updatedTraces);
-    } else {
-        logs.set(userId, [trace]);
+        return new Set(json);
     }
 
-    const entries = [...logs.entries()];
+    export function has(userId: UserId) {
+        const activations = Activations.get();
 
-    writeFile<LogsEntries>(pathTo.logsJSON, entries);
+        return activations.has(userId);
+    }
+
+    export function add(userId: UserId) {
+        const activations = Activations.get();
+
+        activations.add(userId);
+
+        const values = [...activations.values()];
+
+        FS.writeFile<UserId[]>(pathTo.activationsJSON, values);
+    }
 }
 
-function deleteLog(userId: UserId) {
-    const logs = getLogs();
+//
 
-    logs.delete(userId);
+namespace Logs {
+    export function get(): LogsMap {
+        const json = FS.readFile<LogsEntries>(pathTo.logsJSON);
 
-    const entries = [...logs.entries()];
+        return new Map(json);
+    }
 
-    writeFile<LogsEntries>(pathTo.logsJSON, entries);
+    export function remove(userId: UserId) {
+        const logs = Logs.get();
+
+        logs.delete(userId);
+
+        const entries = [...logs.entries()];
+
+        FS.writeFile<LogsEntries>(pathTo.logsJSON, entries);
+    }
+}
+
+//
+
+namespace Trace {
+    export function get(userId: UserId): Trace | undefined {
+        const logs = Logs.get();
+
+        if (logs.has(userId)) {
+            const traces = logs.get(userId);
+
+            if (traces && traces.length > 0) {
+                return traces[traces.length - 1];
+            }
+        }
+    }
+
+    export function set(userId: UserId, trace: Trace): void {
+        const logs = Logs.get();
+        const prevTraces = logs.get(userId);
+
+        if (prevTraces) {
+            const updatedTraces = [...prevTraces, trace];
+
+            logs.set(userId, updatedTraces);
+        } else {
+            logs.set(userId, [trace]);
+        }
+
+        const entries = [...logs.entries()];
+
+        FS.writeFile<LogsEntries>(pathTo.logsJSON, entries);
+    }
 }
 
 //
@@ -200,7 +214,7 @@ function startSchedule(context: Context): void {
 
     schedule.scheduleJob(everyMinute, () => {
         const userId = getUserId(context);
-        const trace = getTrace(userId);
+        const trace = Trace.get(userId);
 
         if (!trace) {
             context.reply(
@@ -216,22 +230,22 @@ function startSchedule(context: Context): void {
             if (prevPower !== nextPower) {
                 if (nextPower === 1) {
                     await context.reply(
-                        `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${passedTimeFrom(
+                        `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${Time.passedTimeFrom(
                             timestamp,
                         )}`,
                     );
                 } else {
                     await context.reply(
-                        `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${passedTimeFrom(
+                        `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${Time.passedTimeFrom(
                             timestamp,
                         )}`,
                     );
                 }
 
-                setTrace(userId, {
+                Trace.set(userId, {
                     ip,
                     power: nextPower,
-                    timestamp: utcTimestamp(),
+                    timestamp: Time.utcTimestamp(),
                 });
             }
         });
@@ -250,10 +264,10 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.on('text', async (context, next) => {
     const userId = getUserId(context);
-    const isActivated = hasActivation(userId);
+    const isActivated = Activations.has(userId);
 
     if (isActivated) {
-        const trace = getTrace(userId);
+        const trace = Trace.get(userId);
 
         if (!trace) {
             const ipCandidate = context.message.text;
@@ -276,10 +290,10 @@ bot.on('text', async (context, next) => {
                         await context.reply('⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає');
                     }
 
-                    setTrace(userId, {
+                    Trace.set(userId, {
                         power,
                         ip: ipCandidate,
-                        timestamp: utcTimestamp(),
+                        timestamp: Time.utcTimestamp(),
                     });
 
                     await context.reply(
@@ -308,7 +322,7 @@ bot.on('text', async (context, next) => {
             Markup.inlineKeyboard([Markup.button.callback('кніпочка', 'set-ip')]),
         );
 
-        addActivation(userId);
+        Activations.add(userId);
     }
 
     await next();
@@ -318,29 +332,29 @@ bot.on('text', async (context, next) => {
 
 bot.command('ping', async (context) => {
     const userId = getUserId(context);
-    const trace = getTrace(userId);
+    const trace = Trace.get(userId);
 
     if (trace) {
         const { ip, timestamp, power: prevPower } = trace;
 
         ping(ip, async (nextPower) => {
             if (prevPower !== nextPower) {
-                setTrace(userId, {
+                Trace.set(userId, {
                     ip,
                     power: nextPower,
-                    timestamp: utcTimestamp(),
+                    timestamp: Time.utcTimestamp(),
                 });
             }
 
             if (nextPower === 1) {
                 await context.reply(
-                    `💡 Британська розвідка доповідає, що електрика в хаті є вже ${passedTimeFrom(
+                    `💡 Британська розвідка доповідає, що електрика в хаті є вже ${Time.passedTimeFrom(
                         timestamp,
                     )}`,
                 );
             } else {
                 await context.reply(
-                    `⛔️ Світлу - пизда. Електропостачання відсутнє вже ${passedTimeFrom(
+                    `⛔️ Світлу - пизда. Електропостачання відсутнє вже ${Time.passedTimeFrom(
                         timestamp,
                     )}`,
                 );
@@ -351,7 +365,7 @@ bot.command('ping', async (context) => {
 
 bot.command('settings', async (context) => {
     const userId = getUserId(context);
-    const trace = getTrace(userId);
+    const trace = Trace.get(userId);
 
     if (trace) {
         await context.reply(
@@ -366,7 +380,7 @@ bot.command('settings', async (context) => {
 
 bot.command('schedule', async (context) => {
     const userId = getUserId(context);
-    const trace = getTrace(userId);
+    const trace = Trace.get(userId);
 
     if (trace) {
         await context.reply(
@@ -386,7 +400,7 @@ bot.command('schedule', async (context) => {
 
 bot.action('show-ip', async (context) => {
     const userId = getUserId(context);
-    const trace = getTrace(userId);
+    const trace = Trace.get(userId);
 
     if (!trace) {
         await context.reply(
@@ -406,11 +420,11 @@ bot.action('set-ip', async (context) => {
 
     const userId = getUserId(context);
 
-    deleteLog(userId);
+    Logs.remove(userId);
 });
 
 //
 
 bot.launch()
-    .then(() => Object.values(pathTo).forEach((path) => createFileIfNotExist(path, [])))
+    .then(() => Object.values(pathTo).forEach((path) => FS.createFile(path, [])))
     .finally(() => console.log('Bot has been started'));
