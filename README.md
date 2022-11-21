@@ -16,6 +16,6 @@ https://t.me/ShoPoSvitlyBot
 
 **Commands:**
 
-- /ping
-- /settings
-- /schedule
+-   /ping
+-   /settings
+-   /schedule
