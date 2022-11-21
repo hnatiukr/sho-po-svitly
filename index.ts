@@ -72,7 +72,7 @@ function passedTimeFrom(timestamp: number): string {
 
 //
 
-function readFile<DTO>(path: string): DTO {
+function readFile<Data>(path: string): Data {
     const json = fs.readFileSync(path, 'utf-8');
 
     return JSON.parse(json);
@@ -80,6 +80,14 @@ function readFile<DTO>(path: string): DTO {
 
 function writeFile<Data>(path: string, data: Data): void {
     fs.writeFileSync(path, JSON.stringify(data, null, 4));
+}
+
+function createFileIfNotExist<Data>(path: string, data: Data): void {
+    if (!fs.existsSync(path)) {
+        fs.writeFileSync(path, JSON.stringify(data));
+
+        console.log(`${path} has been created`);
+    }
 }
 
 //
@@ -313,10 +321,18 @@ bot.command('ping', async (context) => {
     const trace = getTrace(userId);
 
     if (trace) {
-        const { ip, timestamp } = trace;
+        const { ip, timestamp, power: prevPower } = trace;
 
-        ping(ip, async (power) => {
-            if (power === 1) {
+        ping(ip, async (nextPower) => {
+            if (prevPower !== nextPower) {
+                setTrace(userId, {
+                    ip,
+                    power: nextPower,
+                    timestamp: utcTimestamp(),
+                });
+            }
+
+            if (nextPower === 1) {
                 await context.reply(
                     `💡 Британська розвідка доповідає, що електрика в хаті є вже ${passedTimeFrom(
                         timestamp,
@@ -396,17 +412,5 @@ bot.action('set-ip', async (context) => {
 //
 
 bot.launch()
-    .then(() => {
-        if (!fs.existsSync(pathTo.logsJSON)) {
-            fs.writeFileSync(pathTo.logsJSON, JSON.stringify([]));
-
-            console.log(`${pathTo.logsJSON} has been created`);
-        }
-
-        if (!fs.existsSync(pathTo.activationsJSON)) {
-            fs.writeFileSync(pathTo.activationsJSON, JSON.stringify([]));
-
-            console.log(`${pathTo.activationsJSON} has been created`);
-        }
-    })
+    .then(() => Object.values(pathTo).forEach((path) => createFileIfNotExist(path, [])))
     .finally(() => console.log('Bot has been started'));
