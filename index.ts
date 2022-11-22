@@ -4,7 +4,7 @@ import { resolve } from 'path';
 // @ts-ignore types declaration does not exist
 import netPing from 'net-ping';
 import * as dotenv from 'dotenv';
-import schedule from 'node-schedule';
+import { scheduleJob } from 'node-schedule';
 import { Telegraf, Context, Markup } from 'telegraf';
 
 import dayjs from 'dayjs';
@@ -209,33 +209,24 @@ function ping(ip: Ip, callback: (power: Power) => void): void {
 
 //
 
-function startSchedule(context: Context): void {
+function startSchedule(userId: UserId): void {
     const everyMinute = '*/1 * * * *';
 
-    schedule.scheduleJob(everyMinute, () => {
-        const userId = getUserId(context);
-        const trace = Trace.get(userId);
-
-        if (!trace) {
-            context.reply(
-                'Упс.. щось воно не робе. Схоже, твоя IP адреса ще не налаштована. Спробуй наново додати або змінити її через налаштування /settings',
-            );
-
-            return;
-        }
-
-        const { ip, timestamp, power: prevPower } = trace;
+    scheduleJob(everyMinute, () => {
+        const { ip, timestamp, power: prevPower } = Trace.get(userId)!;
 
         ping(ip, async (nextPower) => {
             if (prevPower !== nextPower) {
                 if (nextPower === 1) {
-                    await context.reply(
+                    await bot.telegram.sendMessage(
+                        userId,
                         `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${Time.passedTimeFrom(
                             timestamp,
                         )}`,
                     );
                 } else {
-                    await context.reply(
+                    await bot.telegram.sendMessage(
+                        userId,
                         `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${Time.passedTimeFrom(
                             timestamp,
                         )}`,
@@ -300,7 +291,7 @@ bot.on('text', async (context, next) => {
                         'Я продовжу моніторити і одразу повідомлю, якщо з електропостачанням щось трапиться. Поточний статус можеш перевірити за допомогою команди /ping ',
                     );
 
-                    await startSchedule(context);
+                    await startSchedule(userId);
 
                     await context.reply('Налаштувати IP адресу можна через команду /settings');
 
@@ -426,5 +417,13 @@ bot.action('set-ip', async (context) => {
 //
 
 bot.launch()
-    .then(() => Object.values(pathTo).forEach((path) => FS.createFile(path, [])))
+    .then(() => {
+        FS.createFile<LogsEntries>(pathTo.logsJSON, []);
+        FS.createFile<UserId[]>(pathTo.activationsJSON, []);
+    })
+    .then(() => {
+        const logs = Logs.get();
+
+        [...logs.keys()].forEach((userId) => startSchedule(userId));
+    })
     .finally(() => console.log('Bot has been started'));
