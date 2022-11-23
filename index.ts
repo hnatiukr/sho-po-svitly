@@ -161,13 +161,7 @@ namespace Trace {
         const logs = Logs.get();
         const prevTraces = logs.get(userId);
 
-        if (prevTraces) {
-            const updatedTraces = [...prevTraces, trace];
-
-            logs.set(userId, updatedTraces);
-        } else {
-            logs.set(userId, [trace]);
-        }
+        logs.set(userId, prevTraces ? [...prevTraces, trace] : [trace]);
 
         const entries = [...logs.entries()];
 
@@ -217,14 +211,14 @@ function startSchedule(userId: UserId): void {
 
         ping(ip, async (nextPower) => {
             if (prevPower !== nextPower) {
-                if (nextPower === 1) {
+                if (nextPower === Power.On) {
                     await bot.telegram.sendMessage(
                         userId,
                         `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${Time.passedTimeFrom(
                             timestamp,
                         )}`,
                     );
-                } else {
+                } else if (nextPower == Power.Off) {
                     await bot.telegram.sendMessage(
                         userId,
                         `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${Time.passedTimeFrom(
@@ -275,9 +269,9 @@ bot.on('text', async (context, next) => {
                 await context.reply('Хвилиночку... 🐢');
 
                 ping(ipCandidate, async (power) => {
-                    if (power === 1) {
+                    if (power === Power.On) {
                         await context.reply('💡 Схоже, зараз електрика є. І це заєбісь');
-                    } else {
+                    } else if (power === Power.Off) {
                         await context.reply('⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає');
                     }
 
@@ -328,6 +322,20 @@ bot.command('ping', async (context) => {
     if (trace) {
         const { ip, timestamp, power: prevPower } = trace;
 
+        if (prevPower === Power.On) {
+            await context.reply(
+                `💡 Британська розвідка доповідає, що електрика в хаті є вже ${Time.passedTimeFrom(
+                    timestamp,
+                )}`,
+            );
+        } else if (prevPower === Power.Off) {
+            await context.reply(
+                `⛔️ Світлу - пизда. Електропостачання відсутнє вже ${Time.passedTimeFrom(
+                    timestamp,
+                )}`,
+            );
+        }
+
         ping(ip, async (nextPower) => {
             if (prevPower !== nextPower) {
                 Trace.set(userId, {
@@ -335,20 +343,6 @@ bot.command('ping', async (context) => {
                     power: nextPower,
                     timestamp: Time.utcTimestamp(),
                 });
-            }
-
-            if (nextPower === 1) {
-                await context.reply(
-                    `💡 Британська розвідка доповідає, що електрика в хаті є вже ${Time.passedTimeFrom(
-                        timestamp,
-                    )}`,
-                );
-            } else {
-                await context.reply(
-                    `⛔️ Світлу - пизда. Електропостачання відсутнє вже ${Time.passedTimeFrom(
-                        timestamp,
-                    )}`,
-                );
             }
         });
     }
