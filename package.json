@@ -1,6 +1,6 @@
 {
     "name": "sho-po-svitly",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "description": "A Telegram bot that checks electricity by pinging a static IP address",
     "author": "Roman Hnatiuk <hnatiukr@pm.me>",
     "license": "GNU GENERAL PUBLIC LICENSE",
