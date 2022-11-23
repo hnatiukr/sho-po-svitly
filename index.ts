@@ -204,9 +204,9 @@ function ping(ip: Ip, callback: (power: Power) => void): void {
 //
 
 function startSchedule(userId: UserId): void {
-    const everyMinute = '*/1 * * * *';
+    const every30Seconds = '1,31 * * * * *';
 
-    scheduleJob(everyMinute, () => {
+    scheduleJob(every30Seconds, () => {
         const { ip, timestamp, power: prevPower } = Trace.get(userId)!;
 
         ping(ip, async (nextPower) => {
