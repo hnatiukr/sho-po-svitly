@@ -33,16 +33,6 @@ type Ip = string;
 
 type UserId = number;
 
-type Trace = {
-    ip: Ip;
-    power: Power;
-    timestamp: number;
-};
-
-type LogsMap = Map<UserId, Trace[]>;
-
-type LogsEntries = [UserId, Trace[]][];
-
 //
 
 const pathTo = {
@@ -124,114 +114,140 @@ namespace Activations {
 
 //
 
-namespace Logs {
-    export function get(): LogsMap {
-        const json = FS.readFile<LogsEntries>(pathTo.logsJSON);
-
-        return new Map(json);
-    }
-
-    export function remove(userId: UserId) {
-        const logs = Logs.get();
-
-        logs.delete(userId);
-
-        const entries = [...logs.entries()];
-
-        FS.writeFile<LogsEntries>(pathTo.logsJSON, entries);
-    }
+interface Log {
+    createdAt: number;
+    power: Power;
 }
 
-//
+namespace Log {
+    export function getLast(userId: UserId): Log | undefined {
+        const user = User.get(userId);
 
-namespace Trace {
-    export function get(userId: UserId): Trace | undefined {
-        const logs = Logs.get();
-
-        if (logs.has(userId)) {
-            const traces = logs.get(userId);
-
-            if (traces && traces.length > 0) {
-                return traces[traces.length - 1];
-            }
+        if (user) {
+            return user.logs[user.logs.length - 1];
         }
     }
 
-    export function set(userId: UserId, trace: Trace): void {
-        const logs = Logs.get();
-        const prevTraces = logs.get(userId);
+    export function add(userId: UserId, power: Power): void {
+        const users = User.getAll();
 
-        logs.set(userId, prevTraces ? [...prevTraces, trace] : [trace]);
+        const updatedUsers = users.map((user) => {
+            if (user.userId === userId) {
+                const log: Log = {
+                    power,
+                    createdAt: Time.utcTimestamp(),
+                };
 
-        const entries = [...logs.entries()];
+                return {
+                    ...user,
+                    logs: [...user.logs, log],
+                };
+            }
 
-        FS.writeFile<LogsEntries>(pathTo.logsJSON, entries);
+            return user;
+        });
+
+        FS.writeFile(pathTo.logsJSON, updatedUsers);
     }
 }
 
 //
 
-function getUserId(context: Context): UserId {
-    if (context?.from?.id) {
-        return context?.from?.id;
+interface User {
+    createdAt: number;
+    userId: UserId;
+    ip: Ip;
+    logs: Log[];
+}
+
+namespace User {
+    export function getAll(): User[] {
+        return FS.readFile<User[]>(pathTo.logsJSON);
     }
 
-    if (context?.message?.from.id) {
-        return context?.message?.from.id;
+    export function get(userId: UserId): User | undefined {
+        const users = User.getAll();
+
+        return users.find((user) => user.userId === userId);
     }
 
-    // @ts-ignore an incorrect context param type
-    return context.update.message.from.id;
+    export function getId(context: Context): number {
+        if (context?.from?.id) {
+            return context?.from?.id;
+        }
+
+        if (context?.message?.from.id) {
+            return context?.message?.from.id;
+        }
+
+        // @ts-ignore an incorrect context param type
+        return context.update.message.from.id;
+    }
+
+    export function add(user: Pick<User, 'ip' | 'userId'>): void {
+        const users = User.getAll();
+
+        const timestamp = Time.utcTimestamp();
+
+        users.push({
+            ip: user.ip,
+            userId: user.userId,
+            createdAt: timestamp,
+            logs: [],
+        });
+
+        FS.writeFile(pathTo.logsJSON, users);
+    }
 }
 
 //
 
-function ping(ip: Ip, callback: (power: Power) => void): void {
+async function ping(ip: Ip, callback: (power: Power) => void): Promise<void> {
     const session = netPing.createSession();
 
-    session.pingHost(ip, (error: Error) => {
+    await session.pingHost(ip, async (error: Error) => {
         const power = error ? Power.Off : Power.On;
         const pingTime = dayjs().locale('en').utcOffset(2).format('DD MMM YYYY, hh:mm a');
 
         console.log(`${pingTime} | ${ip} | status: ${power}`);
 
-        callback(power);
+        await callback(power);
 
-        session.close();
+        await session.close();
     });
 }
 
 //
 
-function startSchedule(userId: UserId): void {
+async function startSchedule(userId: UserId): Promise<void> {
     const every30Seconds = '1,31 * * * * *';
 
-    scheduleJob(every30Seconds, () => {
-        const { ip, timestamp, power: prevPower } = Trace.get(userId)!;
+    await scheduleJob(every30Seconds, async () => {
+        const user = User.get(userId);
+        const log = Log.getLast(userId);
 
-        ping(ip, async (nextPower) => {
+        const { ip } = user!;
+        const { createdAt, power: prevPower } = log!;
+
+        await ping(ip, async (nextPower) => {
             if (prevPower !== nextPower) {
                 if (nextPower === Power.On) {
                     await bot.telegram.sendMessage(
                         userId,
                         `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${Time.passedTimeFrom(
-                            timestamp,
+                            createdAt,
                         )}`,
                     );
                 } else if (nextPower == Power.Off) {
                     await bot.telegram.sendMessage(
                         userId,
                         `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${Time.passedTimeFrom(
-                            timestamp,
+                            createdAt,
                         )}`,
                     );
                 }
 
-                Trace.set(userId, {
-                    ip,
-                    power: nextPower,
-                    timestamp: Time.utcTimestamp(),
-                });
+                await Log.add(userId, nextPower);
             }
         });
     });
@@ -247,129 +263,174 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 //
 
-bot.on('text', async (context, next) => {
-    const userId = getUserId(context);
+bot.start(async (context) => {
+    const userId = User.getId(context);
     const isActivated = Activations.has(userId);
 
+    await context.reply(
+        'Привіт. Я вмію інформвати про відключення/відновлення електроенергії, пінгуючи роутер',
+    );
+
     if (isActivated) {
-        const trace = Trace.get(userId);
+        const user = User.get(userId);
 
-        if (!trace) {
-            const ipCandidate = context.message.text;
+        if (user) {
+            await context.reply(
+                'Твоя IP адреса вже є в базі. Я продовжу моніторити і одразу повідомлю, якщо з електропостачанням щось трапиться.',
+            );
 
-            if (isValidIp(ipCandidate)) {
-                await context.reply(
-                    `О, красава! У подальшому, ти зможеш перевірити або змінити IP адресу в налаштуваннях`,
-                );
-
-                await context.reply(
-                    'Давай налаштуємо роботу бота. Для початку, перевіримо шо там по світлу зараз',
-                );
-
-                await context.reply('Хвилиночку... 🐢');
-
-                ping(ipCandidate, async (power) => {
-                    if (power === Power.On) {
-                        await context.reply('💡 Схоже, зараз електрика є. І це заєбісь');
-                    } else if (power === Power.Off) {
-                        await context.reply('⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає');
-                    }
-
-                    Trace.set(userId, {
-                        power,
-                        ip: ipCandidate,
-                        timestamp: Time.utcTimestamp(),
-                    });
-
-                    await context.reply(
-                        'Я продовжу моніторити і одразу повідомлю, якщо з електропостачанням щось трапиться. Поточний статус можеш перевірити за допомогою команди /ping ',
-                    );
-
-                    await startSchedule(userId);
-
-                    await context.reply('Налаштувати IP адресу можна через команду /settings');
-
-                    await context.reply(
-                        'Або, використовуй для виклику команд навігаційне меню ліворуч від того місця, де ти набираєш текст \n\nОтут, внизу ↙️',
-                    );
-                });
-            } else {
-                await context.reply('Хуйня якась. Ти шо не можеш додати нормальну IP адресу?');
-            }
+            await startSchedule(userId);
         }
     } else {
         await context.reply(
-            'Привіт. Я вмію інформвати про відключення/відновлення електроенергії, пінгуючи роутер',
-        );
-
-        await context.reply(
-            'Твоєї IP адреси ще немає в базі. Тисни кніпочку нижче, щоб додати її',
-            Markup.inlineKeyboard([Markup.button.callback('кніпочка', 'set-ip')]),
+            'Твоєї IP адреси ще немає в базі. Просто відправ її мені наступним повідомленням: ',
         );
 
         Activations.add(userId);
+    }
+});
+
+bot.on('text', async (context, next) => {
+    const userId = User.getId(context);
+    const user = User.get(userId);
+
+    const isActivated = Activations.has(userId);
+
+    if (isActivated && !user) {
+        const ipCandidate = context.message.text;
+
+        if (isValidIp(ipCandidate)) {
+            await User.add({ userId, ip: ipCandidate });
+
+            await context.reply('О, красава! Тепер, давай перевіримо шо таму тебе по світлу зараз');
+
+            await context.reply('Хвилиночку... 🐢');
+
+            await ping(ipCandidate, async (power) => {
+                switch (power) {
+                    case Power.On: {
+                        await context.reply('💡 Схоже, зараз електрика є. І це заєбісь');
+
+                        break;
+                    }
+
+                    case Power.Off: {
+                        await context.reply('⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає');
+
+                        break;
+                    }
+
+                    default: {
+                        throw new Error(`bot.on: Unknown power value: ${power}`);
+                    }
+                }
+
+                await Log.add(userId, power);
+
+                await context.reply(
+                    'Я продовжу моніторити і повідомлю, як тільки статус електропостачання зміниться',
+                );
+
+                await startSchedule(userId);
+            });
+        } else {
+            await context.reply('Хуйня якась. Ти шо не можеш додати нормальну IP адресу?');
+        }
     }
 
     await next();
 });
 
-//
-
 bot.command('ping', async (context) => {
-    const userId = getUserId(context);
-    const trace = Trace.get(userId);
+    const userId = User.getId(context);
+    const user = User.get(userId);
+    const log = Log.getLast(userId);
 
-    if (trace) {
-        const { ip, timestamp, power: prevPower } = trace;
+    if (user && log) {
+        const { ip } = user;
+        const { createdAt, power: prevPower } = log;
 
-        if (prevPower === Power.On) {
-            await context.reply(
-                `💡 Британська розвідка доповідає, що електрика в хаті є вже ${Time.passedTimeFrom(
-                    timestamp,
-                )}`,
-            );
-        } else if (prevPower === Power.Off) {
-            await context.reply(
-                `⛔️ Світлу - пизда. Електропостачання відсутнє вже ${Time.passedTimeFrom(
-                    timestamp,
-                )}`,
-            );
-        }
+        await ping(ip, async (nextPower) => {
+            const hasPowerChanged = prevPower !== nextPower;
 
-        ping(ip, async (nextPower) => {
-            if (prevPower !== nextPower) {
-                Trace.set(userId, {
-                    ip,
-                    power: nextPower,
-                    timestamp: Time.utcTimestamp(),
-                });
+            if (hasPowerChanged) {
+                switch (nextPower) {
+                    case Power.On: {
+                        await context.reply(
+                            `💡Вечір в хату! Електропостачання щойно відновили. Воно було відсутнє ${Time.passedTimeFrom(
+                                createdAt,
+                            )}`,
+                        );
+
+                        break;
+                    }
+
+                    case Power.Off: {
+                        await context.reply(
+                            `⛔Світлу - пизда. У тебе на всьо-провсьо було ${Time.passedTimeFrom(
+                                createdAt,
+                            )}`,
+                        );
+
+                        break;
+                    }
+
+                    default: {
+                        throw new Error(
+                            `bot.command(/ping): Unknown nextPower value: ${nextPower}`,
+                        );
+                    }
+                }
+
+                await Log.add(userId, nextPower);
+            } else {
+                switch (prevPower) {
+                    case Power.On: {
+                        await context.reply(
+                            `⚡️Електропостачання в хаті є вже ${Time.passedTimeFrom(createdAt)}`,
+                        );
+
+                        break;
+                    }
+
+                    case Power.Off: {
+                        await context.reply(
+                            `🔌Електропостачання відсутнє вже ${Time.passedTimeFrom(createdAt)}`,
+                        );
+
+                        break;
+                    }
+
+                    default: {
+                        throw new Error(
+                            `bot.command(/ping): Unknown prevPower value: ${prevPower}`,
+                        );
+                    }
+                }
             }
         });
     }
 });
 
 bot.command('settings', async (context) => {
-    const userId = getUserId(context);
-    const trace = Trace.get(userId);
+    const userId = User.getId(context);
+    const log = Log.getLast(userId);
 
-    if (trace) {
+    if (log) {
         await context.reply(
-            '⚙️Налаштування IP адреси\n',
-            Markup.inlineKeyboard([
-                Markup.button.callback('👀 переглянути', 'show-ip'),
-                Markup.button.callback('✏️️ змінити', 'set-ip'),
-            ]),
+            '⚙️Налаштування\n',
+            Markup.inlineKeyboard([Markup.button.callback('👀 переглянути IP адресу', 'show-ip')]),
         );
     }
 });
 
 bot.command('schedule', async (context) => {
-    const userId = getUserId(context);
-    const trace = Trace.get(userId);
+    const userId = User.getId(context);
+    const log = Log.getLast(userId);
 
-    if (trace) {
+    if (log) {
         await context.reply(
-            'Графік відключень',
+            'Подивитись графік відключень ти можеш нижче за посиланнями. Але ж ти знаєш, що вони ніхуя не працюють, бо йобані росіяни - нікчеми, гній і підараси!',
             Markup.inlineKeyboard([
                 Markup.button.url(
                     'Київ',
@@ -381,43 +442,29 @@ bot.command('schedule', async (context) => {
     }
 });
 
-//
-
 bot.action('show-ip', async (context) => {
-    const userId = getUserId(context);
-    const trace = Trace.get(userId);
+    const userId = User.getId(context);
+    const user = User.get(userId);
 
-    if (!trace) {
-        await context.reply(
-            'Схоже, твоя IP адреса ще не налаштована. Запусти команду /settings, а далі сам розберешься',
-        );
-
-        return;
+    if (user) {
+        await context.reply(`Твоя IP адреса: ${user.ip}`);
     }
-
-    await context.reply(`Твоя IP адреса: ${trace.ip}`);
 });
 
-bot.action('set-ip', async (context) => {
+bot.command('stop', async (context) => {
     await context.reply(
-        '⬇️ Введи свою IP адресу (вона має бути статичною і публічною, інакше ніхуя працювати не буде):',
+        '🛑Ахрана, атмєна. Ти зупинив ботa. Схоже, він всрато працює. Ну сорі, буває',
     );
-
-    const userId = getUserId(context);
-
-    Logs.remove(userId);
 });
-
-//
 
 bot.launch()
     .then(() => {
-        FS.createFile<LogsEntries>(pathTo.logsJSON, []);
+        FS.createFile<User[]>(pathTo.logsJSON, []);
         FS.createFile<UserId[]>(pathTo.activationsJSON, []);
     })
     .then(() => {
-        const logs = Logs.get();
+        const users = User.getAll();
 
-        [...logs.keys()].forEach((userId) => startSchedule(userId));
+        users.forEach(({ userId }) => startSchedule(userId));
     })
     .finally(() => console.log('Bot has been started'));
