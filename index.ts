@@ -208,8 +208,6 @@ async function ping(ip: Ip, callback: (power: Power) => void): Promise<void> {
     await session.pingHost(ip, async (error: Error, target: string) => {
         const power = error ? Power.Off : Power.On;
 
-        console.log(`DEBUG LINE | target: ${target} | power: ${power} | error: ${error}`);
-
         const pingTime = dayjs().locale('en').utcOffset(2).format('DD MMM YYYY, hh:mm a');
 
         console.log(`${pingTime} | ${ip} | status: ${power}`);
@@ -465,5 +463,5 @@ bot.launch()
         FS.createFile<User[]>(pathTo.logsJSON, []);
         FS.createFile<UserId[]>(pathTo.activationsJSON, []);
     })
-    .then(async () => startSchedule())
+    .then(startSchedule)
     .finally(() => console.log('Bot has been started'));
