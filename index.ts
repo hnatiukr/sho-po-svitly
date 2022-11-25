@@ -219,37 +219,51 @@ async function ping(ip: Ip, callback: (power: Power) => void): Promise<void> {
 
 //
 
-async function startSchedule(userId: UserId): Promise<void> {
+function startSchedule(): void {
     const every30Seconds = '1,31 * * * * *';
 
-    await scheduleJob(every30Seconds, async () => {
-        const user = User.get(userId);
-        const log = Log.getLast(userId);
+    scheduleJob(every30Seconds, async () => {
+        const users = User.getAll();
 
-        const { ip } = user!;
-        const { createdAt, power: prevPower } = log!;
+        for (const user of users) {
+            const log = Log.getLast(user.userId)!;
 
-        await ping(ip, async (nextPower) => {
-            if (prevPower !== nextPower) {
-                if (nextPower === Power.On) {
-                    await bot.telegram.sendMessage(
-                        userId,
-                        `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${Time.passedTimeFrom(
-                            createdAt,
-                        )}`,
-                    );
-                } else if (nextPower == Power.Off) {
-                    await bot.telegram.sendMessage(
-                        userId,
-                        `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${Time.passedTimeFrom(
-                            createdAt,
-                        )}`,
-                    );
+            await ping(user.ip, async (nextPower) => {
+                const hasPowerChanged = log.power !== nextPower;
+
+                switch (true) {
+                    case hasPowerChanged && nextPower === Power.On: {
+                        await bot.telegram.sendMessage(
+                            user.userId,
+                            `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${Time.passedTimeFrom(
+                                log.createdAt,
+                            )}`,
+                        );
+
+                        await Log.add(user.userId, nextPower);
+
+                        break;
+                    }
+
+                    case hasPowerChanged && nextPower === Power.Off: {
+                        await bot.telegram.sendMessage(
+                            user.userId,
+                            `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${Time.passedTimeFrom(
+                                log.createdAt,
+                            )}`,
+                        );
+
+                        await Log.add(user.userId, nextPower);
+
+                        break;
+                    }
+
+                    default: {
+                        break;
+                    }
                 }
-
-                await Log.add(userId, nextPower);
-            }
-        });
+            });
+        }
     });
 }
 
@@ -278,8 +292,6 @@ bot.start(async (context) => {
             await context.reply(
                 'Твоя IP адреса вже є в базі. Я продовжу моніторити і одразу повідомлю, якщо з електропостачанням щось трапиться.',
             );
-
-            await startSchedule(userId);
         }
     } else {
         await context.reply(
@@ -325,13 +337,11 @@ bot.on('text', async (context, next) => {
                     }
                 }
 
-                await Log.add(userId, power);
-
                 await context.reply(
                     'Я продовжу моніторити і повідомлю, як тільки статус електропостачання зміниться',
                 );
 
-                await startSchedule(userId);
+                await Log.add(userId, power);
             });
         } else {
             await context.reply('Хуйня якась. Ти шо не можеш додати нормальну IP адресу?');
@@ -353,59 +363,49 @@ bot.command('ping', async (context) => {
         await ping(ip, async (nextPower) => {
             const hasPowerChanged = prevPower !== nextPower;
 
-            if (hasPowerChanged) {
-                switch (nextPower) {
-                    case Power.On: {
-                        await context.reply(
-                            `💡Вечір в хату! Електропостачання щойно відновили. Воно було відсутнє ${Time.passedTimeFrom(
-                                createdAt,
-                            )}`,
-                        );
+            switch (true) {
+                case hasPowerChanged && nextPower === Power.On: {
+                    await context.reply(
+                        `💡Вечір в хату! Електропостачання щойно відновили. Воно було відсутнє ${Time.passedTimeFrom(
+                            createdAt,
+                        )}`,
+                    );
 
-                        break;
-                    }
+                    await Log.add(userId, nextPower);
 
-                    case Power.Off: {
-                        await context.reply(
-                            `⛔Світлу - пизда. У тебе на всьо-провсьо було ${Time.passedTimeFrom(
-                                createdAt,
-                            )}`,
-                        );
-
-                        break;
-                    }
-
-                    default: {
-                        throw new Error(
-                            `bot.command(/ping): Unknown nextPower value: ${nextPower}`,
-                        );
-                    }
+                    break;
                 }
 
-                await Log.add(userId, nextPower);
-            } else {
-                switch (prevPower) {
-                    case Power.On: {
-                        await context.reply(
-                            `⚡️Електропостачання в хаті є вже ${Time.passedTimeFrom(createdAt)}`,
-                        );
+                case hasPowerChanged && nextPower === Power.Off: {
+                    await context.reply(
+                        `⛔Світлу - пизда. У тебе на всьо-провсьо було ${Time.passedTimeFrom(
+                            createdAt,
+                        )}`,
+                    );
 
-                        break;
-                    }
+                    await Log.add(userId, nextPower);
 
-                    case Power.Off: {
-                        await context.reply(
-                            `🔌Електропостачання відсутнє вже ${Time.passedTimeFrom(createdAt)}`,
-                        );
+                    break;
+                }
 
-                        break;
-                    }
+                case !hasPowerChanged && prevPower === Power.On: {
+                    await context.reply(
+                        `⚡️Електропостачання в хаті є вже ${Time.passedTimeFrom(createdAt)}`,
+                    );
 
-                    default: {
-                        throw new Error(
-                            `bot.command(/ping): Unknown prevPower value: ${prevPower}`,
-                        );
-                    }
+                    break;
+                }
+
+                case !hasPowerChanged && prevPower === Power.Off: {
+                    await context.reply(
+                        `🔌Електропостачання відсутнє вже ${Time.passedTimeFrom(createdAt)}`,
+                    );
+
+                    break;
+                }
+
+                default: {
+                    throw new Error('command: /ping - unknown scenario');
                 }
             }
         });
@@ -462,9 +462,5 @@ bot.launch()
         FS.createFile<User[]>(pathTo.logsJSON, []);
         FS.createFile<UserId[]>(pathTo.activationsJSON, []);
     })
-    .then(() => {
-        const users = User.getAll();
-
-        users.forEach(({ userId }) => startSchedule(userId));
-    })
+    .then(async () => startSchedule())
     .finally(() => console.log('Bot has been started'));
