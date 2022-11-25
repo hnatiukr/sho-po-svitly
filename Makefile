@@ -15,6 +15,7 @@ dev:
 ci:
 	make bot-stop
 	git pull origin main
+	rm -rf node_modules/
 	make install build bot-restart bot-status
 
 bot-stop:

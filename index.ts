@@ -2,7 +2,7 @@ import fs from 'fs';
 import { resolve } from 'path';
 
 // @ts-ignore types declaration does not exist
-import netPing from 'net-ping';
+import ping from 'ping';
 import * as dotenv from 'dotenv';
 import { scheduleJob } from 'node-schedule';
 import { Telegraf, Context, Markup } from 'telegraf';
@@ -202,19 +202,15 @@ namespace User {
 
 //
 
-async function ping(ip: Ip, callback: (power: Power) => void): Promise<void> {
-    const session = netPing.createSession();
-
-    await session.pingHost(ip, async (error: Error, target: string) => {
-        const power = error ? Power.Off : Power.On;
+async function startPing(ip: Ip, callback: (power: Power) => void): Promise<void> {
+    await ping.sys.probe(ip, async (isAlive: boolean) => {
+        const power = isAlive ? Power.On : Power.Off;
 
         const pingTime = dayjs().locale('en').utcOffset(2).format('DD MMM YYYY, hh:mm a');
 
         console.log(`${pingTime} | ${ip} | status: ${power}`);
 
         await callback(power);
-
-        await session.close();
     });
 }
 
@@ -229,7 +225,7 @@ function startSchedule(): void {
         for (const user of users) {
             const log = Log.getLast(user.userId)!;
 
-            await ping(user.ip, async (nextPower) => {
+            await startPing(user.ip, async (nextPower) => {
                 const hasPowerChanged = log.power !== nextPower;
 
                 switch (true) {
@@ -319,7 +315,7 @@ bot.on('text', async (context, next) => {
 
             await context.reply('Хвилиночку... 🐢');
 
-            await ping(ipCandidate, async (power) => {
+            await startPing(ipCandidate, async (power) => {
                 switch (power) {
                     case Power.On: {
                         await context.reply('💡 Схоже, зараз електрика є. І це заєбісь');
@@ -361,7 +357,7 @@ bot.command('ping', async (context) => {
         const { ip } = user;
         const { createdAt, power: prevPower } = log;
 
-        await ping(ip, async (nextPower) => {
+        await startPing(ip, async (nextPower) => {
             const hasPowerChanged = prevPower !== nextPower;
 
             switch (true) {
