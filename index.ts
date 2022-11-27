@@ -217,9 +217,9 @@ async function startPing(ip: Ip, callback: (power: Power) => void): Promise<void
 //
 
 function startSchedule(): void {
-    const every30Seconds = '1,31 * * * * *';
+    const everyMinute = '*/1 * * * *';
 
-    scheduleJob(every30Seconds, async () => {
+    scheduleJob(everyMinute, async () => {
         const users = User.getAll();
 
         for (const user of users) {
