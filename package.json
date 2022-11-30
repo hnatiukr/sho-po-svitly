@@ -1,14 +1,16 @@
 {
     "name": "sho-po-svitly",
-    "version": "3.1.1",
+    "version": "3.2.0",
     "description": "A Telegram bot that checks electricity by pinging a static IP address",
     "author": "Roman Hnatiuk <hnatiukr@pm.me>",
     "license": "GNU GENERAL PUBLIC LICENSE",
+    "type": "module",
     "dependencies": {
         "dayjs": "1.11.6",
         "dotenv": "16.0.3",
+        "markdown-table": "3.0.2",
         "node-schedule": "2.1.0",
-        "ping": "^0.4.2",
+        "ping": "0.4.2",
         "telegraf": "4.10.0"
     },
     "devDependencies": {
