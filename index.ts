@@ -3,15 +3,17 @@ import { resolve } from 'path';
 
 // @ts-ignore types declaration does not exist
 import ping from 'ping';
+import dayjs from 'dayjs';
 import * as dotenv from 'dotenv';
-import { scheduleJob } from 'node-schedule';
+import nodeSchedule from 'node-schedule';
+import { markdownTable } from 'markdown-table';
 import { Telegraf, Context, Markup } from 'telegraf';
 
-import dayjs from 'dayjs';
-import uk from 'dayjs/locale/uk';
-import utc from 'dayjs/plugin/utc';
-import relativeTime from 'dayjs/plugin/relativeTime';
-import updateLocale from 'dayjs/plugin/updateLocale';
+import uk from 'dayjs/locale/uk.js';
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
+import relativeTime from 'dayjs/plugin/relativeTime.js';
+import updateLocale from 'dayjs/plugin/updateLocale.js';
 
 //
 
@@ -19,6 +21,7 @@ dotenv.config();
 
 dayjs.locale(uk);
 dayjs.extend(utc);
+dayjs.extend(timezone);
 dayjs.extend(relativeTime);
 dayjs.extend(updateLocale);
 
@@ -40,31 +43,39 @@ const pathTo = {
     activationsJSON: pathFromRoot('activations.json'),
 };
 
-//
-
-function isValidIp(ipCandidate: Ip) {
-    const ipV4RegExp = /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$/;
-
-    return ipV4RegExp.test(ipCandidate);
-}
-
-function pathFromRoot(path: string): string {
-    return resolve(process.cwd(), path);
-}
+const command = {
+    ping: 'ping',
+    stat: 'stat',
+    stop: 'stop',
+    settings: 'settings',
+    schedule: 'schedule',
+};
 
 //
+
+namespace Format {
+    export function strong(message: string): string {
+        return `<strong>${message}</strong>`;
+    }
+
+    export function italic(message: string): string {
+        return `<italic>${message}</italic>`;
+    }
+}
 
 namespace Time {
     export function utcTimestamp(): number {
         return dayjs().utc().valueOf();
     }
 
+    export function toLocale(timestamp?: number): dayjs.Dayjs {
+        return dayjs(timestamp).utc().local().tz('Europe/Kiev');
+    }
+
     export function passedTimeFrom(timestamp: number): string {
         return dayjs(timestamp).fromNow(true);
     }
 }
-
-//
 
 namespace FS {
     export function readFile<Data>(path: string): Data {
@@ -86,7 +97,56 @@ namespace FS {
     }
 }
 
-//
+namespace Table {
+    export function make(logs: Log[]): string {
+        const entries = logs.map(({ createdAt, power }) => {
+            const date = Time.toLocale(createdAt).format('hh:mm a');
+            const powerStatus = power ? '💡 увімкнули' : '🔌 вимкнули';
+
+            return [date, powerStatus];
+        }) as string[][];
+
+        const header = Time.toLocale(logs[0].createdAt).format('D MMMM');
+
+        const table = markdownTable([['час', 'шо по світлу?']].concat(entries));
+
+        return `${header}\n\n<pre>${table}</pre>\n`;
+    }
+
+    export function makeByPeriod(logs: Log[], period: number) {
+        const startOf = Time.toLocale().subtract(period, 'day');
+
+        const selectedPeriodLogs = logs.filter(
+            ({ createdAt }) => Time.toLocale(createdAt).valueOf() >= startOf.valueOf(),
+        );
+
+        if (selectedPeriodLogs.length === 0) {
+            return 'Шось не знайшлось нічого...';
+        }
+
+        if (period === 1) {
+            return Table.make(selectedPeriodLogs);
+        }
+
+        let dateMemo: string | null = null;
+        const logsByDates: Record<string, Log[]> = {};
+
+        for (let index = 0; index < selectedPeriodLogs.length; index += 1) {
+            const log = selectedPeriodLogs[index];
+            const formattedDate = Time.toLocale(log.createdAt).format('DD MMM');
+
+            if (dateMemo !== formattedDate) {
+                logsByDates[formattedDate] = [log];
+
+                dateMemo = formattedDate;
+            } else {
+                logsByDates[formattedDate] = [...logsByDates[formattedDate], log];
+            }
+        }
+
+        return Object.values(logsByDates).map(Table.make).join('\n');
+    }
+}
 
 namespace Activations {
     export function get(): Set<UserId> {
@@ -112,8 +172,6 @@ namespace Activations {
     }
 }
 
-//
-
 interface Log {
     createdAt: number;
     power: Power;
@@ -125,6 +183,14 @@ namespace Log {
 
         if (user) {
             return user.logs[user.logs.length - 1];
+        }
+    }
+
+    export function getAll(userId: UserId): Log[] | undefined {
+        const user = User.get(userId);
+
+        if (user) {
+            return user.logs;
         }
     }
 
@@ -150,8 +216,6 @@ namespace Log {
         FS.writeFile(pathTo.logsJSON, updatedUsers);
     }
 }
-
-//
 
 interface User {
     createdAt: number;
@@ -187,12 +251,10 @@ namespace User {
     export function add(user: Pick<User, 'ip' | 'userId'>): void {
         const users = User.getAll();
 
-        const timestamp = Time.utcTimestamp();
-
         users.push({
             ip: user.ip,
             userId: user.userId,
-            createdAt: timestamp,
+            createdAt: Time.utcTimestamp(),
             logs: [],
         });
 
@@ -202,11 +264,21 @@ namespace User {
 
 //
 
+function isValidIp(ipCandidate: Ip) {
+    const ipV4RegExp = /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$/;
+
+    return ipV4RegExp.test(ipCandidate);
+}
+
+function pathFromRoot(path: string): string {
+    return resolve(process.cwd(), path);
+}
+
 async function startPing(ip: Ip, callback: (power: Power) => void): Promise<void> {
     await ping.sys.probe(ip, async (isAlive: boolean) => {
         const power = isAlive ? Power.On : Power.Off;
 
-        const pingTime = dayjs().locale('en').utcOffset(2).format('DD MMM YYYY, hh:mm a');
+        const pingTime = Time.toLocale().format('DD MMM YYYY, hh:mm a');
 
         console.log(`${pingTime} | ${ip} | status: ${power}`);
 
@@ -214,12 +286,10 @@ async function startPing(ip: Ip, callback: (power: Power) => void): Promise<void
     });
 }
 
-//
-
 function startSchedule(): void {
     const everyMinute = '*/1 * * * *';
 
-    scheduleJob(everyMinute, async () => {
+    nodeSchedule.scheduleJob(everyMinute, async () => {
         const users = User.getAll();
 
         for (const user of users) {
@@ -230,12 +300,13 @@ function startSchedule(): void {
 
                 switch (true) {
                     case hasPowerChanged && nextPower === Power.On: {
-                        await bot.telegram.sendMessage(
-                            user.userId,
-                            `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${Time.passedTimeFrom(
-                                log.createdAt,
-                            )}`,
-                        );
+                        const message = `💡 Аллілуя! Схоже, електропостачання відновлено. Але не зловживай їм, бо президент по жопі надає. Світла не було ${Time.passedTimeFrom(
+                            log.createdAt,
+                        )}`;
+
+                        await bot.telegram.sendMessage(user.userId, Format.strong(message), {
+                            parse_mode: 'HTML',
+                        });
 
                         await Log.add(user.userId, nextPower);
 
@@ -243,12 +314,13 @@ function startSchedule(): void {
                     }
 
                     case hasPowerChanged && nextPower === Power.Off: {
-                        await bot.telegram.sendMessage(
-                            user.userId,
-                            `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${Time.passedTimeFrom(
-                                log.createdAt,
-                            )}`,
-                        );
+                        const message = `⛔️ Світлу - пизда. Схоже, електрику вирубили нахуй. У тебе на всьо провсьо було ${Time.passedTimeFrom(
+                            log.createdAt,
+                        )}`;
+
+                        await bot.telegram.sendMessage(user.userId, Format.strong(message), {
+                            parse_mode: 'HTML',
+                        });
 
                         await Log.add(user.userId, nextPower);
 
@@ -271,8 +343,6 @@ if (process.env.BOT_TOKEN === undefined) {
 }
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-
-//
 
 bot.start(async (context) => {
     const userId = User.getId(context);
@@ -318,13 +388,17 @@ bot.on('text', async (context, next) => {
             await startPing(ipCandidate, async (power) => {
                 switch (power) {
                     case Power.On: {
-                        await context.reply('💡 Схоже, зараз електрика є. І це заєбісь');
+                        const message = '💡 Схоже, зараз електрика є. І це заєбісь';
+
+                        await context.reply(Format.strong(message), { parse_mode: 'HTML' });
 
                         break;
                     }
 
                     case Power.Off: {
-                        await context.reply('⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає');
+                        const message = '⛔️ Схоже, cвітлу - пизда. Зараз елекрики немає';
+
+                        await context.reply(Format.strong(message), { parse_mode: 'HTML' });
 
                         break;
                     }
@@ -341,14 +415,30 @@ bot.on('text', async (context, next) => {
                 await Log.add(userId, power);
             });
         } else {
-            await context.reply('Хуйня якась. Ти шо не можеш додати нормальну IP адресу?');
+            await context.reply('Хуйня якась 💩 Ти шо не можеш додати нормальну IP адресу?');
+        }
+    } else {
+        const inputText = context.message.text;
+        const commands = Object.values(command).map((cmd) => `/${cmd}`);
+        const isInputTextNotCommand = !commands.includes(inputText);
+
+        if (isInputTextNotCommand) {
+            await context.reply(
+                'Шо? Я звичайний тупий бот. Я нічого не розумію, крім заданних команд. Не змушуй мене відправляти цей текст кожного разу, надсилаючи якусь хуйню в чат',
+            );
+
+            await context.reply(
+                'Список доступних команд можна переглянути в меню, ліворуч від текстового поля',
+            );
+
+            await context.reply(Format.strong('Ось тут ↙️'), { parse_mode: 'HTML' });
         }
     }
 
     await next();
 });
 
-bot.command('ping', async (context) => {
+bot.command(command.ping, async (context) => {
     const userId = User.getId(context);
     const user = User.get(userId);
     const log = Log.getLast(userId);
@@ -362,11 +452,11 @@ bot.command('ping', async (context) => {
 
             switch (true) {
                 case hasPowerChanged && nextPower === Power.On: {
-                    await context.reply(
-                        `💡Вечір в хату! Електропостачання щойно відновили. Воно було відсутнє ${Time.passedTimeFrom(
-                            createdAt,
-                        )}`,
-                    );
+                    const message = `💡Вечір в хату! Електропостачання щойно відновили. Воно було відсутнє ${Time.passedTimeFrom(
+                        createdAt,
+                    )}`;
+
+                    await context.reply(Format.strong(message), { parse_mode: 'HTML' });
 
                     await Log.add(userId, nextPower);
 
@@ -374,11 +464,11 @@ bot.command('ping', async (context) => {
                 }
 
                 case hasPowerChanged && nextPower === Power.Off: {
-                    await context.reply(
-                        `⛔Світлу - пизда. У тебе на всьо-провсьо було ${Time.passedTimeFrom(
-                            createdAt,
-                        )}`,
-                    );
+                    const message = `⛔Світлу - пизда. У тебе на всьо-провсьо було ${Time.passedTimeFrom(
+                        createdAt,
+                    )}`;
+
+                    await context.reply(Format.strong(message), { parse_mode: 'HTML' });
 
                     await Log.add(userId, nextPower);
 
@@ -409,19 +499,19 @@ bot.command('ping', async (context) => {
     }
 });
 
-bot.command('settings', async (context) => {
+bot.command(command.settings, async (context) => {
     const userId = User.getId(context);
     const log = Log.getLast(userId);
 
     if (log) {
         await context.reply(
-            '⚙️Налаштування\n',
+            '⚙️ Налаштування\n',
             Markup.inlineKeyboard([Markup.button.callback('👀 переглянути IP адресу', 'show-ip')]),
         );
     }
 });
 
-bot.command('schedule', async (context) => {
+bot.command(command.schedule, async (context) => {
     const userId = User.getId(context);
     const log = Log.getLast(userId);
 
@@ -439,19 +529,60 @@ bot.command('schedule', async (context) => {
     }
 });
 
+bot.command(command.stat, async (context) => {
+    await context.reply(
+        'Переглянути статистику за останні:',
+        Markup.inlineKeyboard([
+            Markup.button.callback('24 години', 'show-stat-1'),
+            Markup.button.callback('3 доби', 'show-stat-3'),
+            Markup.button.callback('7 днів', 'show-stat-7'),
+        ]),
+    );
+});
+
+bot.command(command.stop, async (context) => {
+    await context.reply(
+        '🛑 Ахрана, атмєна. Ти зупинив ботa. Схоже, він всрато працює. Ну сорі, буває',
+    );
+
+    await context.reply(
+        'І взагалі, я цю команду ще не доробив, то й може бот і далі продовжить пінгувати твій роутер 🦀. А може й ні) ',
+    );
+});
+
 bot.action('show-ip', async (context) => {
     const userId = User.getId(context);
     const user = User.get(userId);
 
     if (user) {
-        await context.reply(`Твоя IP адреса: ${user.ip}`);
+        const message = `${Format.strong('Твоя IP адреса')}: ${user.ip}`;
+
+        await context.reply(message, { parse_mode: 'HTML' });
     }
 });
 
-bot.command('stop', async (context) => {
-    await context.reply(
-        '🛑Ахрана, атмєна. Ти зупинив ботa. Схоже, він всрато працює. Ну сорі, буває',
-    );
+bot.action(/^show-stat-(\d+)$/, async (context) => {
+    const userId = User.getId(context);
+    const logs = Log.getAll(userId);
+
+    if (logs) {
+        await context.reply('Хвилиночку... 🐢');
+
+        const period = Number.parseInt(context.match[1]);
+
+        const stringifyPeriod =
+            period === 1 ? 'останню добу' : period === 3 ? 'останні 3 доби' : 'останні 7 діб';
+
+        const title = Format.strong(
+            `Статистка включень/відключень електропостачання за ${stringifyPeriod}`,
+        );
+
+        await context.reply(title, { parse_mode: 'HTML' });
+
+        const table = Table.makeByPeriod(logs, period);
+
+        await context.reply(Table.makeByPeriod(logs, period), { parse_mode: 'HTML' });
+    }
 });
 
 bot.launch()
