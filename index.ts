@@ -105,21 +105,21 @@ namespace Table {
             return power === Power.On ? [`${date} -`, ''] : ['', `- ${date}`];
         }) as string[][];
 
-        const abc = [];
-        const plug = ['', ''];
+        const entriesWithSeparator = [];
+        const sepatator = ['', ''];
 
         for (let index = 0; index < entries.length; index += 1) {
             if (index === 0) {
-                abc.push(plug);
+                entriesWithSeparator.push(sepatator);
             }
 
-            abc.push(entries[index]);
-            abc.push(plug);
+            entriesWithSeparator.push(entries[index]);
+            entriesWithSeparator.push(sepatator);
         }
 
         const header = Time.toLocale(logs[0].createdAt).format('D MMMM');
 
-        const table = markdownTable([['викл.', 'вкл.']].concat(abc), {
+        const table = markdownTable([['викл.', 'вкл.']].concat(entriesWithSeparator), {
             align: ['r', 'l'],
         });
 
