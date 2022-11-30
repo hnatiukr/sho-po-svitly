@@ -1,9 +1,9 @@
 {
     "compilerOptions": {
         "target": "es2016",
-        "module": "commonjs",
+        "module": "node16",
         "types": ["node"],
-        "moduleResolution": "node",
+        "moduleResolution": "nodenext",
 
         "lib": ["DOM", "DOM.Iterable", "ESNext"],
         "baseUrl": ".",
