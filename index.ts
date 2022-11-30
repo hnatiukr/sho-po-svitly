@@ -101,14 +101,27 @@ namespace Table {
     export function make(logs: Log[]): string {
         const entries = logs.map(({ createdAt, power }) => {
             const date = Time.toLocale(createdAt).format('hh:mm a');
-            const powerStatus = power ? '💡 увімкнули' : '🔌 вимкнули';
 
-            return [date, powerStatus];
+            return power === Power.On ? [`${date} -`, ''] : ['', `- ${date}`];
         }) as string[][];
+
+        const abc = [];
+        const plug = ['', ''];
+
+        for (let index = 0; index < entries.length; index += 1) {
+            if (index === 0) {
+                abc.push(plug);
+            }
+
+            abc.push(entries[index]);
+            abc.push(plug);
+        }
 
         const header = Time.toLocale(logs[0].createdAt).format('D MMMM');
 
-        const table = markdownTable([['час', 'шо по світлу?']].concat(entries));
+        const table = markdownTable([['викл.', 'вкл.']].concat(abc), {
+            align: ['r', 'l'],
+        });
 
         return `${header}\n\n<pre>${table}</pre>\n`;
     }
