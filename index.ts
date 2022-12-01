@@ -102,7 +102,7 @@ namespace Table {
         const entries = logs.map(({ createdAt, power }) => {
             const date = Time.toLocale(createdAt).format('hh:mm a');
 
-            return power === Power.On ? [`${date} -`, ''] : ['', `- ${date}`];
+            return power === Power.On ? ['', `- ${date}`] : [`${date} -`, ''];
         }) as string[][];
 
         const entriesWithSeparator = [];
