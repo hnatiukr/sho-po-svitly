@@ -300,7 +300,7 @@ async function startPing(ip: Ip, callback: (power: Power) => void): Promise<void
 }
 
 function startSchedule(): void {
-    const everyMinute = '*/1 * * * *';
+    const everyMinute = '*/2 * * * *';
 
     nodeSchedule.scheduleJob(everyMinute, async () => {
         const users = User.getAll();
