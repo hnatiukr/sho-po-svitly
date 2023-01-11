@@ -1,4 +1,4 @@
-.PHONY: build dev ci bot-stop bot-restart bot-status bot-config bot-log
+.PHONY: build dev ci bot-stop bot-restart bot-status bot-service bot-log
 
 install:
 	npm ci
@@ -29,7 +29,7 @@ bot-restart:
 bot-status:
 	sudo systemctl status bot
 
-bot-config:
+bot-service:
 	sudo nano /etc/systemd/system/bot.service
 
 bot-log:

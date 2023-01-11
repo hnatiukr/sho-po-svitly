@@ -1,14 +1,12 @@
 ## sho-po-svitly
 
-🇬🇧 A Telegram bot that checks for power by pinging a router with a static IP address.
-
-🇺🇦 Телеграм бот, який вміє інформвати про відключення/відновлення електроенергії, пінгуючи роутер.
-
-<p align="center">
+<p align="left">
   <img with="328" height="112" src="./sho-po-svitly.png" alt="Sho po svitly? Nihuya ne yasno" />
 </p>
 
-**Bot:**
+🇬🇧 A Telegram bot that checks for power by pinging a router with a static IP address.
+
+🇺🇦 Телеграм бот, який вміє інформвати про відключення/відновлення електроенергії, пінгуючи роутер.
 
 ```
 https://t.me/ShoPoSvitlyBot
@@ -16,6 +14,9 @@ https://t.me/ShoPoSvitlyBot
 
 **Commands:**
 
--   /ping
--   /settings
--   /schedule
+- /start
+- /ping
+- /stat
+- /settings
+- /schedule
+- /stop
